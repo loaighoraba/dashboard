@@ -1,6 +1,6 @@
 # Dashboard
 
-A small [FastAPI](https://fastapi.tiangolo.com/) web app that handles my technical needs, deployed on [FastAPI Cloud](https://fastapicloud.com/).
+A small [FastAPI](https://fastapi.tiangolo.com/) web app that handles my technical needs, deployed on [Railway](https://railway.com/).
 
 It currently has one feature: a webhook that GitHub Actions calls on a schedule. The webhook checks a shared secret and reports success. It doesn't do any work yet; scheduled tasks will be added to it.
 
@@ -9,7 +9,7 @@ It currently has one feature: a webhook that GitHub Actions calls on a schedule.
 - Python 3.14, managed with [uv](https://docs.astral.sh/uv/)
 - FastAPI (`fastapi[standard]`)
 - pytest for tests
-- FastAPI Cloud for hosting
+- Railway for hosting (built with Railpack)
 - GitHub Actions to trigger the scheduled webhook
 
 ## Project structure
@@ -23,8 +23,10 @@ app/
 tests/
   test_cron_webhook.py
 .github/workflows/
+  ci.yml               # Runs the tests on pushes and pull requests
   cron.yml             # Scheduled workflow that calls the webhook
 pyproject.toml         # Dependencies and the FastAPI entrypoint (app.main:app)
+railway.json           # Railway build and deploy settings
 ```
 
 ## Local development
@@ -73,30 +75,22 @@ curl -X POST -H "X-Cron-Secret: $CRON_SECRET_TOKEN" http://localhost:8000/webhoo
 | `401`  | The `X-Cron-Secret` header is missing or wrong                          |
 | `500`  | `CRON_SECRET_TOKEN` is not configured on the server                     |
 
-## Deployment (FastAPI Cloud)
+## Deployment (Railway)
 
-Every push to `main` deploys automatically through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow runs the test suite first and only deploys if the tests pass. It waits for FastAPI Cloud to report the deployment's status, so a failed deployment fails the workflow run. You can also run it by hand from the **Actions** tab.
+Railway deploys every push to `main` through its GitHub integration. Railway waits for the [`CI`](.github/workflows/ci.yml) workflow to pass before it deploys, so a failing test blocks the deploy.
+
+Railway builds the app with [Railpack](https://railpack.com/), which detects the uv project from `pyproject.toml`, `uv.lock` and `.python-version`. [`railway.json`](railway.json) sets the rest:
+
+- **Start command:** `fastapi run --host 0.0.0.0 --port $PORT`. `fastapi run` reads the entrypoint from `[tool.fastapi]` in `pyproject.toml`, and Railway sets `PORT`.
+- **Healthcheck:** `GET /` must return `200` before Railway routes traffic to a new deployment.
+- **Restart policy:** Railway restarts the app if it crashes.
 
 ### First-time setup
 
-1. Log in and do a first deploy from the repo root. This creates the app on FastAPI Cloud. The entrypoint is read from `[tool.fastapi]` in `pyproject.toml`.
-
-   ```bash
-   uv run fastapi login
-   uv run fastapi deploy
-   ```
-
-2. In the FastAPI Cloud dashboard, set the `CRON_SECRET_TOKEN` environment variable for the app and mark it as a secret.
-
-3. Connect GitHub Actions to the app:
-
-   ```bash
-   uv run fastapi cloud setup-ci
-   ```
-
-   This creates a deploy token and stores two repository secrets in GitHub (it needs the `gh` CLI): `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID`. When it asks whether to overwrite or write a workflow file, **skip it**, because `deploy.yml` already exists. To add the secrets by hand instead, create a token with `uv run fastapi cloud tokens create`.
-
-The deploy job runs in a GitHub environment called `production`, which GitHub creates on the first run. You can add protection rules to it, such as requiring approval before a deploy.
+1. In Railway, create a project with **Deploy from GitHub repo**, pick this repository, and set the branch to `main`.
+2. In the service's **Settings**, turn on **Wait for CI**.
+3. In the service's **Variables**, add `CRON_SECRET_TOKEN`.
+4. In **Settings → Networking**, click **Generate Domain**. Use this URL as the `APP_URL` variable in GitHub (see below).
 
 ### Generating the secret
 
@@ -104,7 +98,7 @@ The deploy job runs in a GitHub environment called `production`, which GitHub cr
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-This produces 256 random bits in URL-safe characters, so the value never needs quoting in headers or YAML. Use the same value in FastAPI Cloud and in GitHub (see below).
+This produces 256 random bits in URL-safe characters, so the value never needs quoting in headers or YAML. Use the same value in Railway and in GitHub (see below).
 
 ## Scheduled job (GitHub Actions)
 
@@ -114,8 +108,8 @@ The workflow needs two settings in **Settings → Secrets and variables → Acti
 
 | Kind     | Name                | Value                                                        |
 | -------- | ------------------- | ------------------------------------------------------------ |
-| Secret   | `CRON_SECRET_TOKEN` | The same value as in FastAPI Cloud                           |
-| Variable | `APP_URL`           | The deployed app's base URL, e.g. `https://<app>.fastapicloud.dev` |
+| Secret   | `CRON_SECRET_TOKEN` | The same value as in Railway                                 |
+| Variable | `APP_URL`           | The deployed app's base URL, e.g. `https://<app>.up.railway.app` |
 
 The call retries up to 3 times. If the webhook still returns an error, the workflow run fails and GitHub notifies you.
 
@@ -124,7 +118,7 @@ GitHub only runs scheduled workflows from the default branch, and scheduled runs
 ### Rotating the secret
 
 1. Generate a new token.
-2. Update `CRON_SECRET_TOKEN` in FastAPI Cloud.
+2. Update `CRON_SECRET_TOKEN` in Railway. Railway redeploys the service when a variable changes.
 3. Update the `CRON_SECRET_TOKEN` secret in GitHub.
 
 Any run that happens between steps 2 and 3 gets a `401`.

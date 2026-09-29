@@ -21,9 +21,6 @@ htmlcov/
 .env.*
 !.env.example
 
-# FastAPI Cloud local config
-.fastapicloud/
-
 # Claude Code local settings
 .claude/settings.local.json
 
