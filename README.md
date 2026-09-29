@@ -75,7 +75,11 @@ curl -X POST -H "X-Cron-Secret: $CRON_SECRET_TOKEN" http://localhost:8000/webhoo
 
 ## Deployment (FastAPI Cloud)
 
-1. Log in and deploy from the repo root. The entrypoint is read from `[tool.fastapi]` in `pyproject.toml`.
+Every push to `main` deploys automatically through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow runs the test suite first and only deploys if the tests pass. It waits for FastAPI Cloud to report the deployment's status, so a failed deployment fails the workflow run. You can also run it by hand from the **Actions** tab.
+
+### First-time setup
+
+1. Log in and do a first deploy from the repo root. This creates the app on FastAPI Cloud. The entrypoint is read from `[tool.fastapi]` in `pyproject.toml`.
 
    ```bash
    uv run fastapi login
@@ -83,6 +87,16 @@ curl -X POST -H "X-Cron-Secret: $CRON_SECRET_TOKEN" http://localhost:8000/webhoo
    ```
 
 2. In the FastAPI Cloud dashboard, set the `CRON_SECRET_TOKEN` environment variable for the app and mark it as a secret.
+
+3. Connect GitHub Actions to the app:
+
+   ```bash
+   uv run fastapi cloud setup-ci
+   ```
+
+   This creates a deploy token and stores two repository secrets in GitHub (it needs the `gh` CLI): `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID`. When it asks whether to overwrite or write a workflow file, **skip it**, because `deploy.yml` already exists. To add the secrets by hand instead, create a token with `uv run fastapi cloud tokens create`.
+
+The deploy job runs in a GitHub environment called `production`, which GitHub creates on the first run. You can add protection rules to it, such as requiring approval before a deploy.
 
 ### Generating the secret
 
