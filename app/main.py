@@ -9,4 +9,4 @@ app.include_router(webhooks.router)
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to Loai Ghoraba dashboard"}
+    return {"message": "Welcome to Loai Ghoraba dashboard!"}
