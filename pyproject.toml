@@ -16,6 +16,7 @@ dependencies = [
 package = false
 
 [tool.fastapi]
+name="loai-ghoraba"
 entrypoint = "app.main:app"
 
 [tool.pytest.ini_options]
