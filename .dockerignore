@@ -1,0 +1,13 @@
+.git/
+.github/
+.claude/
+.agents/
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+tests/
+.env
+.env.*
+README.md
+skills-lock.json

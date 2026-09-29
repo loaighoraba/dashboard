@@ -1,6 +1,6 @@
 # Dashboard
 
-A small [FastAPI](https://fastapi.tiangolo.com/) web app that handles my technical needs, deployed on [Railway](https://railway.com/).
+A small [FastAPI](https://fastapi.tiangolo.com/) web app that handles my technical needs, deployed on [DigitalOcean App Platform](https://www.digitalocean.com/products/app-platform).
 
 It currently has one feature: a webhook that GitHub Actions calls on a schedule. The webhook checks a shared secret and reports success. It doesn't do any work yet; scheduled tasks will be added to it.
 
@@ -9,7 +9,7 @@ It currently has one feature: a webhook that GitHub Actions calls on a schedule.
 - Python 3.14, managed with [uv](https://docs.astral.sh/uv/)
 - FastAPI (`fastapi[standard]`)
 - pytest for tests
-- Railway for hosting (built with Railpack)
+- DigitalOcean App Platform for hosting (built from the `Dockerfile`)
 - GitHub Actions to trigger the scheduled webhook
 
 ## Project structure
@@ -23,10 +23,10 @@ app/
 tests/
   test_cron_webhook.py
 .github/workflows/
-  ci.yml               # Runs the tests on pushes and pull requests
+  ci.yml               # Runs the tests; deploys to App Platform on pushes to main
   cron.yml             # Scheduled workflow that calls the webhook
 pyproject.toml         # Dependencies and the FastAPI entrypoint (app.main:app)
-railway.json           # Railway build and deploy settings
+Dockerfile             # Production image (uv + fastapi run on port 8080)
 ```
 
 ## Local development
@@ -75,22 +75,29 @@ curl -X POST -H "X-Cron-Secret: $CRON_SECRET_TOKEN" http://localhost:8000/webhoo
 | `401`  | The `X-Cron-Secret` header is missing or wrong                          |
 | `500`  | `CRON_SECRET_TOKEN` is not configured on the server                     |
 
-## Deployment (Railway)
+## Deployment (DigitalOcean App Platform)
 
-Railway deploys every push to `main` through its GitHub integration. Railway waits for the [`CI`](.github/workflows/ci.yml) workflow to pass before it deploys, so a failing test blocks the deploy.
+The app is created and configured in the DigitalOcean dashboard. Every push to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which runs the test suite first and only deploys if the tests pass. The deploy job uses [`digitalocean/app_action`](https://github.com/digitalocean/app_action) to redeploy the app named `dashboard` with its current dashboard settings. It waits for the deployment to finish, so a failed deployment fails the workflow run. Pull requests only run the tests.
 
-Railway builds the app with [Railpack](https://railpack.com/), which detects the uv project from `pyproject.toml`, `uv.lock` and `.python-version`. [`railway.json`](railway.json) sets the rest:
+App Platform builds the image from the [`Dockerfile`](Dockerfile), which installs the locked dependencies with uv and starts the app with `fastapi run` on port 8080. `fastapi run` reads the entrypoint from `[tool.fastapi]` in `pyproject.toml`.
 
-- **Start command:** `fastapi run --host 0.0.0.0 --port $PORT`. `fastapi run` reads the entrypoint from `[tool.fastapi]` in `pyproject.toml`, and Railway sets `PORT`.
-- **Healthcheck:** `GET /` must return `200` before Railway routes traffic to a new deployment.
-- **Restart policy:** Railway restarts the app if it crashes.
+To try the production image locally:
+
+```bash
+docker build -t dashboard .
+docker run --rm -p 8080:8080 -e CRON_SECRET_TOKEN=local-secret dashboard
+```
 
 ### First-time setup
 
-1. In Railway, create a project with **Deploy from GitHub repo**, pick this repository, and set the branch to `main`.
-2. In the service's **Settings**, turn on **Wait for CI**.
-3. In the service's **Variables**, add `CRON_SECRET_TOKEN`.
-4. In **Settings → Networking**, click **Generate Domain**. Use this URL as the `APP_URL` variable in GitHub (see below).
+1. In the DigitalOcean dashboard, go to **Apps → Create App**, choose GitHub as the source, and pick this repository and the `main` branch. **Turn off Autodeploy**, because GitHub Actions deploys after the tests pass.
+2. App Platform detects the `Dockerfile`. Set the HTTP port to `8080` and the health check path to `/`.
+3. Add the environment variable `CRON_SECRET_TOKEN` and tick **Encrypt**.
+4. Name the app `dashboard`. The deploy job finds the app by this name; if you pick a different name, change `app_name` in `ci.yml`.
+5. Create a personal access token under **API → Tokens** with read and write access to Apps. In GitHub, add it as the repository secret `DIGITALOCEAN_ACCESS_TOKEN`.
+6. Use the app's URL (`https://<app>.ondigitalocean.app`) as the `APP_URL` variable in GitHub (see below).
+
+The deploy job runs in a GitHub environment called `production`, which GitHub creates on the first run. You can add protection rules to it, such as requiring approval before a deploy.
 
 ### Generating the secret
 
@@ -98,7 +105,7 @@ Railway builds the app with [Railpack](https://railpack.com/), which detects the
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-This produces 256 random bits in URL-safe characters, so the value never needs quoting in headers or YAML. Use the same value in Railway and in GitHub (see below).
+This produces 256 random bits in URL-safe characters, so the value never needs quoting in headers or YAML. Use the same value in DigitalOcean and in GitHub (see below).
 
 ## Scheduled job (GitHub Actions)
 
@@ -108,8 +115,8 @@ The workflow needs two settings in **Settings → Secrets and variables → Acti
 
 | Kind     | Name                | Value                                                        |
 | -------- | ------------------- | ------------------------------------------------------------ |
-| Secret   | `CRON_SECRET_TOKEN` | The same value as in Railway                                 |
-| Variable | `APP_URL`           | The deployed app's base URL, e.g. `https://<app>.up.railway.app` |
+| Secret   | `CRON_SECRET_TOKEN` | The same value as in DigitalOcean                            |
+| Variable | `APP_URL`           | The deployed app's base URL, e.g. `https://<app>.ondigitalocean.app` |
 
 The call retries up to 3 times. If the webhook still returns an error, the workflow run fails and GitHub notifies you.
 
@@ -118,7 +125,7 @@ GitHub only runs scheduled workflows from the default branch, and scheduled runs
 ### Rotating the secret
 
 1. Generate a new token.
-2. Update `CRON_SECRET_TOKEN` in Railway. Railway redeploys the service when a variable changes.
+2. Update `CRON_SECRET_TOKEN` in the app's settings in DigitalOcean. App Platform redeploys the app when a variable changes.
 3. Update the `CRON_SECRET_TOKEN` secret in GitHub.
 
 Any run that happens between steps 2 and 3 gets a `401`.
