@@ -21,6 +21,7 @@ entrypoint = "app.main:app"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "--strict-markers"
 
 [dependency-groups]
 dev = [
